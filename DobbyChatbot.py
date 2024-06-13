@@ -76,6 +76,8 @@ def main():
                             context_sentences.append(f"Bullets: {product_data['bullets']}")
                         if product_data["description"]:
                             context_sentences.append(f"Description: {product_data['description']}")
+                    else:
+                        context_sentences.append(f"There is no product associated with ASIN: {asin}")
                 
                 context = ' '.join(context_sentences)
 
