@@ -273,7 +273,7 @@ def main():
                                 "content": [
                                     {
                                     "type": "text",
-                                    "text": user_input + chat_prompt
+                                    "text": user_query + chat_prompt
                                     },
                                     {
                                     "type": "image_file",
@@ -295,7 +295,7 @@ def main():
                                 "content": [
                                     {
                                     "type": "text",
-                                    "text": user_input
+                                    "text": user_query
                                     },
                                     {
                                     "type": "image_file",
