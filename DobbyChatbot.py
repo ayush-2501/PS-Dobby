@@ -5,6 +5,7 @@ import re
 from openai import OpenAI
 from dotenv import load_dotenv
 from groq import Groq
+from pinecone import Pinecone
 from nltk.tokenize import sent_tokenize
 import numpy as np
 load_dotenv()
@@ -110,7 +111,9 @@ def main():
     greeting = "Dobby: Hello, I'm Dobby :robot_face: from ProductScope...how can I help you?"
     print(greeting)
     assistant = None
-    temp_flag = False
+    asin_flag = False
+    amazon_flag = False
+    amazon_context = False
 
     # User will have an option to upload file
     print("\nDo you want to upload a file? ")
@@ -124,6 +127,18 @@ def main():
     else:
         print("Invalid choice. Please try again.")
 
+    # Option for pro users to select amazon context or not
+    print("\nDo you want to use amazon context? ")
+    print("[1] Yes")
+    print("[2] No")
+    choice = input("Enter your choice: ")
+    if choice == "1":
+        amazon_context = True
+    elif choice == "2":
+        amazon_context = False
+    else:
+        print("Invalid choice. Please try again.")
+
     while True:
         try:
             # User will ask Questions here
@@ -132,6 +147,43 @@ def main():
                 print("Ending the chat.")
                 break
 
+            # Check if Amazon context in on (if Pro user enables it)
+            if not amazon_context:
+                amazon_flag = True
+                client = OpenAI()
+                pc = Pinecone()
+                index_name = 'ps-faq'
+                pinecone_index = pc.Index(index_name)
+
+                query_embeddings = get_embedding(user_query)
+
+                result = pinecone_index.query(
+                    vector=query_embeddings,
+                    top_k=4,
+                    include_values=False,
+                    include_metadata=True
+                )
+
+                matched_info = ' '.join(item['metadata']['text'] for item in result['matches'])
+                context = f"Information: {matched_info}"
+
+                sys_prompt = {
+                    "role": "system",
+                    "content": f"""Your name is Dobby and you are an expert Amazon Seller with vast knowledge about product development and marketing on
+                    Amazon and general e-commerce experience. In your first response to the user, always start with {greeting}.
+                    The traits of AI include expert knowledge, helpfulness, cleverness, and articulateness.
+                    You are a big fan of ProductScope AI and its software tools that help brands with improving their product conversion rates.
+                    You are always friendly, kind, and inspiring, and eager to provide vivid and thoughtful responses to the user.
+                    Your AI has the sum of all knowledge in their brain, and is able to accurately answer nearly any question about any topic in conversation.
+                    START CONTEXT BLOCK
+                    {context}
+                    END OF CONTEXT BLOCK
+                    AI assistant will take into account any CONTEXT BLOCK that is provided in a conversation.
+                    If the context does not provide the answer to question, you will say, "I'm sorry, but I don't know the answer to that question".
+                    Dobby, the AI assistant will not apologize for previous responses, but instead will indicated new information was gained.
+                    Dobby, the AI assistant will not invent anything that is not drawn directly from the context. """
+                }
+
             # Check for ASIN
             asin_matches = re.findall(r'@(\w+)', user_query)
             if asin_matches:
@@ -139,7 +191,7 @@ def main():
                 for asin in asin_matches:
                     product_info = get_product_from_s3(asin)
                     if product_info:
-                        temp_flag = True
+                        asin_flag = True
                         product_data = preprocess_product_data(product_info)
                         if product_data["title"]:
                             context_sentences.append(f"Title: {product_data['title']}")
@@ -151,9 +203,10 @@ def main():
                             context_sentences.append(f"Description: {product_data['description']}")
                     else:
                         context_sentences.append(f"There is no product associated with ASIN: {asin}")
-                        temp_flag = False
+                        asin_flag = False
                 
-                context = ' '.join(context_sentences)
+
+                context = "Asin Data: " +' '.join(context_sentences)
 
                 sys_prompt = {
                     "role": "system",
@@ -194,7 +247,7 @@ def main():
                     # File-based assistant
                     thread = client.beta.threads.create()
 
-                    if temp_flag:
+                    if asin_flag or amazon_flag:
                         chat_prompt = f"""
                         START ADDITIONAL DATA
                         This is a prompt with additional data that is being added with user input for your reference. The user does not have any idea about this.
@@ -249,7 +302,7 @@ def main():
                             break
                 elif assistant_type == 2:
                     # Image-based assistant
-                    if temp_flag:
+                    if asin_flag or amazon_flag:
                         # Thread and run created for Image based chat with asin
                         chat_prompt = f"""
                         START ADDITIONAL DATA
@@ -354,12 +407,18 @@ def main():
             print(f"{e}")
     
     # Segment to delete Assistant, Thread, File
-    try:        
-        response = client.beta.assistants.delete(assistant.id)
-        response = client.beta.threads.delete(thread.id)
-        response = client.files.delete(file.id)
+    try:
+        if assistant is not None:
+            response = client.beta.assistants.delete(assistant.id)
+            print(f"Deleted assistant: {response}")
+        if thread is not None:
+            response = client.beta.threads.delete(thread.id)
+            print(f"Deleted thread: {response}")
+        if file is not None:
+            response = client.files.delete(file.id)
+            print(f"Deleted file: {response}")
     except Exception as e:
-        pass
+        print(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
     main()
